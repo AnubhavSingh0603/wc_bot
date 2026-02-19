@@ -138,7 +138,6 @@ class TrackerCog(commands.Cog):
             if medals_cog and hasattr(medals_cog, "maybe_congratulate"):
                 try:
                     # mark so medals cog can skip its own on_message handler if it still runs
-                    setattr(message, "_wcb_medal_checked", True)
                     await medals_cog.maybe_congratulate(message, gid, uid, kw)
                 except Exception:
                     self.bot.logger.exception("Medal congrats failed")
