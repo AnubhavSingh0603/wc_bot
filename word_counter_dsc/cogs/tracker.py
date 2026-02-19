@@ -84,34 +84,33 @@ class TrackerCog(commands.Cog):
 
         stopwords = await self._get_stopwords(gid)
 
+        # Count tracked words (already tokenized + normalized), excluding stopwords
         counts = Counter(t for t in tokens if t and t not in stopwords)
         if not counts:
             return
 
-        ab_rows = await self.bot.dbx.fetchall(
-            "SELECT abbreviation, expansion FROM abbreviations WHERE guild_id=?",
-            (gid,),
-        )
-        abbr_map = {str(r["abbreviation"]): str(r["expansion"]) for r in ab_rows}
-
-        working_text = text
-
-        # If message contains abbreviations, append their expansions to the text
-        lower_working = working_text.lower()
-        tokens = tokenize(lower_working)
-        for t in tokens:
-            exp = abbr_map.get(t)
-            if exp:
-                working_text += " " + exp
-
-        # ---- count keyword occurrences ----
         now = int(time.time())
+
+        # ---- persist tracked-word counts ----
+        # This table stores *all* tracked words; profile page 2 later filters to keywords.
+        for w, c in counts.items():
+            await self.bot.dbx.execute(
+                """
+                INSERT INTO word_counts (guild_id, channel_id, user_id, word, count, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(guild_id, channel_id, user_id, word)
+                DO UPDATE SET count = word_counts.count + excluded.count,
+                              updated_at = excluded.updated_at
+                """,
+                (gid, cid, uid, str(w), int(c), now),
+            )
+
         # Pull server keywords from DB (used for keyword stats + medals)
         kw_rows = await self.bot.dbx.fetchall(
             "SELECT word FROM keywords WHERE guild_id=?",
             (gid,),
         )
-        keywords = [str(r["word"]) for r in kw_rows]
+        keywords = {str(r["word"]) for r in kw_rows}
 
         # Avoid duplicate medal triggers per message (discord.Message is slot-based; no setattr)
         if not hasattr(self, "_medal_seen"):
@@ -126,29 +125,16 @@ class TrackerCog(commands.Cog):
             return
         seen[message.id] = ts_now
 
-        for kw in keywords:
-            aliases = KEYWORD_ALIASES.get(kw, [])
-            c = count_keyword_occurrences(working_text, kw, aliases=aliases)
+        # Trigger medal update + congratulatory reply for any keywords that appeared
+        medals_cog = self.bot.get_cog("MedalsCog")
+        if medals_cog and hasattr(medals_cog, "maybe_congratulate"):
+            for kw in keywords:
+                if kw in counts:
+                    try:
+                        await medals_cog.maybe_congratulate(message, gid, uid, kw)
+                    except Exception:
+                        self.bot.logger.exception("Medal congrats failed")
 
-            if c <= 0:
-                continue
-            await self.bot.dbx.execute(
-                """
-                INSERT INTO word_counts (guild_id, channel_id, user_id, word, count, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(guild_id, channel_id, user_id, word)
-                DO UPDATE SET count = word_counts.count + excluded.count,
-                              updated_at = excluded.updated_at
-                """,
-                (gid, cid, uid, kw, int(c), now),
-            )
 
-            # Trigger medal update + congratulatory reply
-            medals_cog = self.bot.get_cog("MedalsCog")
-            if medals_cog and hasattr(medals_cog, "maybe_congratulate"):
-                try:
-                    await medals_cog.maybe_congratulate(message, gid, uid, kw)
-                except Exception:
-                    self.bot.logger.exception("Medal congrats failed")
 async def setup(bot: commands.Bot):
     await bot.add_cog(TrackerCog(bot))
