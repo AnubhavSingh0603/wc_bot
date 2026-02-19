@@ -205,12 +205,8 @@ class SQLiteDBX(DBX):
     async def _migrate_keyword_removals(self) -> None:
         # If legacy schema had PRIMARY KEY(guild_id, word, removed_at), migrate to PRIMARY KEY(guild_id, word)
         rows = await self.fetchall("PRAGMA table_info(keyword_removals)", ())
-<<<<<<< HEAD
         # aiosqlite.Row supports dict-style indexing but not .get()
         pk_cols = [r["name"] for r in rows if int(r["pk"]) > 0]
-=======
-        pk_cols = [r["name"] for r in rows if int(r.get("pk", 0)) > 0]
->>>>>>> ebbd5a6af7ba727497c5c2b2d64308a2d8d1a60c
         if pk_cols == ["guild_id", "word", "removed_at"]:
             await self.execute(
                 "CREATE TABLE IF NOT EXISTS keyword_removals_new (guild_id INTEGER NOT NULL, word TEXT NOT NULL, removed_at INTEGER NOT NULL, PRIMARY KEY(guild_id, word))",
