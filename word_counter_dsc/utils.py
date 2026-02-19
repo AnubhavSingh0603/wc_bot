@@ -13,8 +13,6 @@ _TOKEN_RE = re.compile(r"[A-Za-z0-9]+(?:['’][A-Za-z0-9]+)*|[\u0900-\u097F]+", 
 # Matches common English contractions that should collapse to the base word.
 # Examples: they'd -> they, he'll -> he, it's -> it, can't -> can (handles n't as 't')
 _CONTRACTION_RE = re.compile(r"^([a-z]+)(?:'(?:d|ll|ve|re|m|s|t))$", re.IGNORECASE)
-<<<<<<< HEAD
-=======
 
 # --- Lightweight Porter Stemmer (for English) ---
 # Based on the original Porter stemming algorithm; implemented here to avoid extra deps.
@@ -197,7 +195,6 @@ def porter_stem(word: str) -> str:
         w = w[:-1]
 
     return w
->>>>>>> ebbd5a6af7ba727497c5c2b2d64308a2d8d1a60c
 
 def normalize_text(s: str) -> str:
     return (s or "").strip()
@@ -226,7 +223,6 @@ def normalize_word(w: str) -> str:
         # special-case n't -> base already captured (can, don, isn) which is fine; these are stopwords anyway
         w = base
 
-<<<<<<< HEAD
     return w
 
 
@@ -273,14 +269,6 @@ def stem_word(w: str) -> str:
         w = w[:-2]
         if len(w) >= 2 and w[-1] == w[-2]:
             w = w[:-1]
-=======
-    
-    # Porter-stem simple ASCII words so variants collapse (eat/eating/ate -> eat-ish).
-    # Only stem a-z words; leave numbers/Devanagari as-is.
-    if w and re.fullmatch(r"[a-z]+", w):
-        w = porter_stem(w)
->>>>>>> ebbd5a6af7ba727497c5c2b2d64308a2d8d1a60c
-
     return w
 
 def tokenize(s: str) -> List[str]:
@@ -344,17 +332,11 @@ def build_keyword_regex(keyword: str, aliases: Sequence[str] | None = None) -> r
 def count_keyword_occurrences(message: str, keyword: str, aliases: Sequence[str] | None = None) -> int:
     """Count occurrences of keyword variants in a message.
 
-<<<<<<< HEAD
     Uses tokenization + stemming so counts are case-insensitive, punctuation-tolerant,
-    and merges common suffix forms (eat/eating/eaten -> eat).
-=======
-    Uses normalized token stream so counts are case-insensitive and punctuation-tolerant.
->>>>>>> ebbd5a6af7ba727497c5c2b2d64308a2d8d1a60c
-    """
+    and merges common suffix forms (eat/eating/eaten -> eat).    """
     if not message or not keyword:
         return 0
 
-<<<<<<< HEAD
     tokens = [stem_word(t) for t in tokenize(message)]
     if not tokens:
         return 0
@@ -363,18 +345,6 @@ def count_keyword_occurrences(message: str, keyword: str, aliases: Sequence[str]
     alias_norm = [stem_word(a) for a in (aliases or []) if stem_word(a)]
     allowed = set([kw, *alias_norm])
     return sum(1 for t in tokens if t in allowed)
-=======
-    # Normalize message into tokens, then join with spaces to make boundary matching consistent.
-    norm_text = " ".join(tokenize(message))
-    if not norm_text:
-        return 0
-
-    kw = normalize_word(keyword)
-    alias_norm = [normalize_word(a) for a in (aliases or []) if normalize_word(a)]
-    rx = build_keyword_regex(kw, aliases=alias_norm)
-    return sum(1 for _ in rx.finditer(norm_text))
->>>>>>> ebbd5a6af7ba727497c5c2b2d64308a2d8d1a60c
-
 def user_mention(user_id: int) -> str:
     """Return a mention string. Use AllowedMentions.none() when sending to avoid pings."""
     return f"<@{int(user_id)}>"

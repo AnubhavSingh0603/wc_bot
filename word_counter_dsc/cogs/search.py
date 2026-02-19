@@ -28,13 +28,8 @@ class SearchCog(commands.Cog):
         assert self.bot.dbx is not None
         gid = int(interaction.guild_id or 0)
         kw = normalize_word(keyword)
-<<<<<<< HEAD
         n = int(top_n or DEFAULT_TOP_N)
         n = max(1, min(n, 25))
-=======
-        n = max(1, min(int(top_n or DEFAULT_TOP_N), 25))
->>>>>>> ebbd5a6af7ba727497c5c2b2d64308a2d8d1a60c
-
         if not kw:
             await interaction.response.send_message("Please provide a keyword.", ephemeral=True)
             return

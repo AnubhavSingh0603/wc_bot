@@ -25,31 +25,17 @@ class ProfileCog(commands.Cog):
         # keyword totals for this user
         rows = await self.bot.dbx.fetchall(
             """
-<<<<<<< HEAD
             SELECT wc.word AS keyword, SUM(wc.count) AS total
             FROM word_counts wc
             JOIN keywords k
               ON k.guild_id = wc.guild_id AND k.word = wc.word
             WHERE wc.guild_id=? AND wc.user_id=?
             GROUP BY wc.word
-=======
-            SELECT k.word AS keyword, SUM(wc.count) AS total
-            FROM word_counts wc
-            JOIN keywords k
-              ON k.guild_id = wc.guild_id
-             AND LOWER(k.word) = LOWER(wc.word)
-            WHERE wc.guild_id=? AND wc.user_id=?
-            GROUP BY k.word
->>>>>>> ebbd5a6af7ba727497c5c2b2d64308a2d8d1a60c
             ORDER BY total DESC
             """,
             (guild_id, uid),
         )
-<<<<<<< HEAD
         kw_totals = [(r["keyword"], int(r["total"])) for r in rows if int(r["total"]) > 0 and str(r["keyword"]) not in CORE_STOPWORDS]
-=======
-        kw_totals = [(r["keyword"], int(r["total"])) for r in rows if int(r["total"]) > 0 and str(r["keyword"]).lower() not in CORE_STOPWORDS]
->>>>>>> ebbd5a6af7ba727497c5c2b2d64308a2d8d1a60c
         distinct_kw = len(kw_totals)
         top_kw = kw_totals[0] if kw_totals else None
         rare_kw = kw_totals[-1] if kw_totals else None
@@ -104,12 +90,8 @@ class ProfileCog(commands.Cog):
 
     @app_commands.command(name="me", description="Show your profile.")
     async def me(self, interaction: discord.Interaction):
-<<<<<<< HEAD
         if not interaction.response.is_done():
             await interaction.response.defer(thinking=True)
-=======
-        await interaction.response.defer(thinking=True)
->>>>>>> ebbd5a6af7ba727497c5c2b2d64308a2d8d1a60c
         gid = int(interaction.guild_id or 0)
         embeds = await self._build_profile_embeds(gid, interaction.user)
         view = Paginator(embeds, author_id=int(interaction.user.id))
@@ -117,12 +99,8 @@ class ProfileCog(commands.Cog):
 
     @app_commands.command(name="profile", description="Show a user's profile (defaults to you).")
     async def profile(self, interaction: discord.Interaction, user: discord.User | None = None):
-<<<<<<< HEAD
         if not interaction.response.is_done():
             await interaction.response.defer(thinking=True)
-=======
-        await interaction.response.defer(thinking=True)
->>>>>>> ebbd5a6af7ba727497c5c2b2d64308a2d8d1a60c
         gid = int(interaction.guild_id or 0)
         user = user or interaction.user
         embeds = await self._build_profile_embeds(gid, user)

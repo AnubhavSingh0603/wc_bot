@@ -88,7 +88,6 @@ class TrackerCog(commands.Cog):
         if not counts:
             return
 
-<<<<<<< HEAD
         ab_rows = await self.bot.dbx.fetchall(
             "SELECT abbreviation, expansion FROM abbreviations WHERE guild_id=?",
             (gid,),
@@ -107,6 +106,25 @@ class TrackerCog(commands.Cog):
 
         # ---- count keyword occurrences ----
         now = int(time.time())
+        # Pull server keywords from DB (used for keyword stats + medals)
+        kw_rows = await self.bot.dbx.fetchall(
+            "SELECT word FROM keywords WHERE guild_id=?",
+            (gid,),
+        )
+        keywords = [str(r["word"]) for r in kw_rows]
+
+        # Avoid duplicate medal triggers per message (discord.Message is slot-based; no setattr)
+        if not hasattr(self, "_medal_seen"):
+            self._medal_seen = {}  # msg_id -> ts
+        seen = self._medal_seen
+        ts_now = time.time()
+        # prune old entries (keep ~15 minutes)
+        for mid, ts in list(seen.items()):
+            if ts_now - ts > 900:
+                del seen[mid]
+        if message.id in seen:
+            return
+        seen[message.id] = ts_now
 
         for kw in keywords:
             aliases = KEYWORD_ALIASES.get(kw, [])
@@ -114,13 +132,6 @@ class TrackerCog(commands.Cog):
 
             if c <= 0:
                 continue
-
-=======
-        now = int(time.time())
-
-        # Upsert per (guild, channel, user, word)
-        for w, c in counts.items():
->>>>>>> ebbd5a6af7ba727497c5c2b2d64308a2d8d1a60c
             await self.bot.dbx.execute(
                 """
                 INSERT INTO word_counts (guild_id, channel_id, user_id, word, count, updated_at)
@@ -129,21 +140,15 @@ class TrackerCog(commands.Cog):
                 DO UPDATE SET count = word_counts.count + excluded.count,
                               updated_at = excluded.updated_at
                 """,
-                (gid, cid, uid, w, int(c), now),
+                (gid, cid, uid, kw, int(c), now),
             )
 
-<<<<<<< HEAD
-            # Trigger medal update + congratulatory reply (avoid race with MedalsCog listener)
+            # Trigger medal update + congratulatory reply
             medals_cog = self.bot.get_cog("MedalsCog")
             if medals_cog and hasattr(medals_cog, "maybe_congratulate"):
                 try:
-                    # mark so medals cog can skip its own on_message handler if it still runs
                     await medals_cog.maybe_congratulate(message, gid, uid, kw)
                 except Exception:
                     self.bot.logger.exception("Medal congrats failed")
-
-=======
->>>>>>> ebbd5a6af7ba727497c5c2b2d64308a2d8d1a60c
-
 async def setup(bot: commands.Bot):
     await bot.add_cog(TrackerCog(bot))
