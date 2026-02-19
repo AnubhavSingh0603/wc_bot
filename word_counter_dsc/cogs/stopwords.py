@@ -1,0 +1,111 @@
+from __future__ import annotations
+
+import time
+
+import discord
+from discord import app_commands
+from discord.ext import commands
+
+from word_counter_dsc.utils import split_csv_words, safe_allowed_mentions
+from word_counter_dsc.stopwords_core import CORE_STOPWORDS
+
+from word_counter_dsc.ui.theme import base_embed
+
+# Core stopwords are built-in and never counted.
+# Server stopwords are extra per-server exclusions.
+EXTRA_STOPWORDS: set[str] = set()
+
+
+class StopwordsCog(commands.GroupCog, group_name="stopword", group_description="Manage stopwords (words ignored for fun stats)"):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+        super().__init__()
+
+    @app_commands.command(name="list", description="Show stopwords for this server.")
+    async def list_sw(self, interaction: discord.Interaction):
+        assert self.bot.dbx is not None
+        gid = int(interaction.guild_id or 0)
+        rows = await self.bot.dbx.fetchall(
+            "SELECT word FROM stopwords WHERE guild_id=? ORDER BY word ASC",
+            (gid,),
+        )
+        server_words = [str(r["word"]) for r in rows]
+        core_words = sorted(CORE_STOPWORDS)
+
+        emb = base_embed("Stopwords", "Core stopwords are built-in and never counted. Server stopwords are extra exclusions for this server.")
+        emb.add_field(
+            name=f"Core stopwords ({len(core_words)})",
+            value=("• " + "\n• ".join(core_words[:120])) if core_words else "_(none)_",
+            inline=False,
+        )
+        if len(core_words) > 120:
+            emb.set_footer(text=f"Showing first 120 core stopwords. Use /stopword list_server for server extras.")
+        await interaction.response.send_message(embed=emb, allowed_mentions=safe_allowed_mentions())
+
+    @app_commands.command(name="add", description="Add one or more stopwords (comma/space separated).")
+    @app_commands.describe(words="Example: the, and, lol")
+    async def add_sw(self, interaction: discord.Interaction, words: str):
+        assert self.bot.dbx is not None
+        gid = int(interaction.guild_id or 0)
+        items = sorted(set(split_csv_words(words)))
+        if not items:
+            await interaction.response.send_message("No stopwords provided.", ephemeral=True)
+            return
+
+        now = int(time.time())
+        for w in items:
+            await self.bot.dbx.execute(
+                """
+                INSERT INTO stopwords (guild_id, word, created_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(guild_id, word) DO NOTHING
+                """,
+                (gid, w, now),
+            )
+
+        # Purge any existing counts for these stopwords to save DB space (server extras + core are never counted going forward)
+        if getattr(self.bot.dbx, "dialect", "") == "postgres":
+            await self.bot.dbx.execute(
+                "DELETE FROM word_counts WHERE guild_id=? AND word = ANY(?)",
+                (gid, items),
+            )
+        else:
+            q = "DELETE FROM word_counts WHERE guild_id=? AND word IN (" + ",".join(["?"] * len(items)) + ")"
+            await self.bot.dbx.execute(q, (gid, *items))
+
+        await interaction.response.send_message(f"Added {len(items)} stopword(s).", ephemeral=True)
+
+    @app_commands.command(name="remove", description="Remove one or more stopwords (comma/space separated).")
+    async def remove_sw(self, interaction: discord.Interaction, words: str):
+        assert self.bot.dbx is not None
+        gid = int(interaction.guild_id or 0)
+        items = sorted(set(split_csv_words(words)))
+        if not items:
+            await interaction.response.send_message("No stopwords provided.", ephemeral=True)
+            return
+        for w in items:
+            await self.bot.dbx.execute(
+                "DELETE FROM stopwords WHERE guild_id=? AND word=?",
+                (gid, w),
+            )
+        await interaction.response.send_message(f"Removed {len(items)} stopword(s).", ephemeral=True)
+
+    @app_commands.command(name="seed", description="Seed a good default stopword list (Ephemeral).")
+    async def seed_defaults(self, interaction: discord.Interaction):
+        assert self.bot.dbx is not None
+        gid = int(interaction.guild_id or 0)
+        now = int(time.time())
+        for w in sorted(EXTRA_STOPWORDS):
+            await self.bot.dbx.execute(
+                """
+                INSERT INTO stopwords (guild_id, word, created_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(guild_id, word) DO NOTHING
+                """,
+                (gid, w, now),
+            )
+        await interaction.response.send_message("Core stopwords are built-in. (No server defaults to seed.)", ephemeral=True)
+
+
+async def setup(bot: commands.Bot):
+    await bot.add_cog(StopwordsCog(bot))

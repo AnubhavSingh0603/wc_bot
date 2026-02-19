@@ -1,0 +1,26 @@
+services:
+  - type: worker
+    name: wordcounter-dsc
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m word_counter_dsc.main
+    envVars:
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: DB_DIALECT
+        value: postgres
+      - key: DATABASE_URL
+        fromDatabase:
+          name: wordcounter-dsc-db
+          property: connectionString
+      - key: COUNT_MODE
+        value: UNIQUE
+      - key: AUTO_BACKFILL_ENABLED
+        value: "1"
+
+databases:
+  - name: wordcounter-dsc-db
+    plan: free
+    databaseName: wordcounter
+    user: wordcounter
