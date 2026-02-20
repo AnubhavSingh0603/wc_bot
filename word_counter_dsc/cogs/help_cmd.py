@@ -20,7 +20,7 @@ BOT_DESC = (
     "• `/top [user]` — top tracked words (server or user)\n"
     "• `/search <word>` — leaderboard for any tracked word\n"
     "• `/rank <keyword>` — leaderboard for a keyword\n"
-    "• `/emoji` — emoji usage stats\n"
+    "• `/emoji` — emoji usage stats (incl. reactions)\n"
     "• `/medals` — achievements / medals info\n\n"
     "**Keyword tools:**\n"
     "• `/keyword list` — show keywords (public)\n"
@@ -34,7 +34,6 @@ BOT_DESC = (
     "Tip: Mentions in leaderboards are **clickable but won’t ping** anyone."
 )
 
-
 class HelpCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -47,7 +46,6 @@ class HelpCog(commands.Cog):
             ephemeral=True,
             allowed_mentions=safe_allowed_mentions(),
         )
-
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(HelpCog(bot))

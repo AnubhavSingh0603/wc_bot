@@ -9,6 +9,7 @@ from discord.ext import commands
 from word_counter_dsc.utils import split_csv_words
 from word_counter_dsc.utils import safe_allowed_mentions
 from word_counter_dsc.ui.theme import base_embed
+from word_counter_dsc.ui.pagination import Paginator
 from word_counter_dsc.stopwords_core import CORE_STOPWORDS
 
 
@@ -32,13 +33,33 @@ class KeywordCog(commands.GroupCog, group_name="keyword", group_description="Man
         )
         kws = [str(r["word"]) for r in rows]
 
-        emb = base_embed("Tracked Keywords", "Server-wide tracked keywords.")
-        emb.add_field(
-            name=f"Keywords ({len(kws)})",
-            value=("• " + "\n• ".join(kws)) if kws else "_No keywords yet. Use /keyword add (admin)._",
-            inline=False,
+        if not kws:
+            emb = base_embed("Tracked Keywords", "Server-wide tracked keywords.")
+            emb.description = "_No keywords yet. Use /keyword add (admin)._"
+            await interaction.response.send_message(embed=emb, allowed_mentions=safe_allowed_mentions())
+            return
+
+        # 15 entries per page
+        page_size = 15
+        embeds: list[discord.Embed] = []
+        for i in range(0, len(kws), page_size):
+            chunk = kws[i : i + page_size]
+            page_no = (i // page_size) + 1
+            total_pages = (len(kws) + page_size - 1) // page_size
+            emb = base_embed("Tracked Keywords", "Server-wide tracked keywords.")
+            emb.add_field(
+                name=f"Keywords ({len(kws)}) — Page {page_no}/{total_pages}",
+                value="\n".join([f"• {w}" for w in chunk]) or "—",
+                inline=False,
+            )
+            embeds.append(emb)
+
+        view = Paginator(embeds, author_id=int(interaction.user.id))
+        await interaction.response.send_message(
+            embed=view.first_embed(),
+            view=view,
+            allowed_mentions=safe_allowed_mentions(),
         )
-        await interaction.response.send_message(embed=emb, allowed_mentions=safe_allowed_mentions())
 
     # ---------------------------
     # /keyword add  (EPHEMERAL)
@@ -179,15 +200,33 @@ class KeywordCog(commands.GroupCog, group_name="keyword", group_description="Man
             "SELECT abbreviation, expansion FROM abbreviations WHERE guild_id=? ORDER BY abbreviation ASC",
             (gid,),
         )
-        emb = base_embed("Keyword Abbreviations", "These map short forms to phrases containing tracked keywords.")
         if not rows:
+            emb = base_embed("Keyword Abbreviations", "These map short forms to phrases containing tracked keywords.")
             emb.description = "_No abbreviation rules yet._"
-        else:
-            lines = [f"• **{r['abbreviation']}** = {r['expansion']}" for r in rows[:50]]
-            emb.add_field(name=f"Rules ({len(rows)})", value="\n".join(lines), inline=False)
-            if len(rows) > 50:
-                emb.set_footer(text=f"Showing first 50 of {len(rows)} rules.")
-        await interaction.response.send_message(embed=emb, allowed_mentions=safe_allowed_mentions())
+            await interaction.response.send_message(embed=emb, allowed_mentions=safe_allowed_mentions())
+            return
+
+        lines = [f"• **{r['abbreviation']}** = {r['expansion']}" for r in rows]
+        page_size = 15
+        embeds: list[discord.Embed] = []
+        for i in range(0, len(lines), page_size):
+            chunk = lines[i : i + page_size]
+            page_no = (i // page_size) + 1
+            total_pages = (len(lines) + page_size - 1) // page_size
+            emb = base_embed("Keyword Abbreviations", "These map short forms to phrases containing tracked keywords.")
+            emb.add_field(
+                name=f"Rules ({len(lines)}) — Page {page_no}/{total_pages}",
+                value="\n".join(chunk) or "—",
+                inline=False,
+            )
+            embeds.append(emb)
+
+        view = Paginator(embeds, author_id=int(interaction.user.id))
+        await interaction.response.send_message(
+            embed=view.first_embed(),
+            view=view,
+            allowed_mentions=safe_allowed_mentions(),
+        )
 
     @app_commands.command(name="abbrev_remove", description="Remove abbreviations by name (comma/space). (Ephemeral)")
     @app_commands.describe(abbrs="Example: wtf, lol")

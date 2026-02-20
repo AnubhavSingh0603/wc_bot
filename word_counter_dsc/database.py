@@ -77,6 +77,15 @@ CREATE TABLE IF NOT EXISTS emoji_counts (
     PRIMARY KEY (guild_id, user_id, emoji_name)
 );
 
+CREATE TABLE IF NOT EXISTS unicode_emoji_counts (
+    guild_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    emoji TEXT NOT NULL,
+    count INTEGER NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (guild_id, user_id, emoji)
+);
+
 """
 
 SCHEMA_POSTGRES = """
@@ -141,6 +150,15 @@ CREATE TABLE IF NOT EXISTS emoji_counts (
     count BIGINT NOT NULL DEFAULT 0,
     updated_at BIGINT NOT NULL,
     PRIMARY KEY (guild_id, user_id, emoji_name)
+);
+
+CREATE TABLE IF NOT EXISTS unicode_emoji_counts (
+    guild_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    emoji TEXT NOT NULL,
+    count BIGINT NOT NULL DEFAULT 0,
+    updated_at BIGINT NOT NULL,
+    PRIMARY KEY (guild_id, user_id, emoji)
 );
 """
 

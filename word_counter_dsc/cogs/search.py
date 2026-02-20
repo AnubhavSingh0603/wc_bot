@@ -7,7 +7,12 @@ from discord.ext import commands
 from word_counter_dsc.config import DEFAULT_TOP_N
 from word_counter_dsc.stopwords_core import CORE_STOPWORDS
 from word_counter_dsc.ui.theme import base_embed
+from word_counter_dsc.ui.pagination import Paginator
 from word_counter_dsc.utils import normalize_word, user_mention, safe_allowed_mentions
+
+
+def _chunk(lines: list[str], n: int = 15) -> list[list[str]]:
+    return [lines[i : i + n] for i in range(0, len(lines), n)]
 
 
 class SearchCog(commands.Cog):
@@ -58,18 +63,36 @@ class SearchCog(commands.Cog):
             (gid, kw, n),
         )
 
-        emb = base_embed(f"Top {len(rows)} for '{kw}'", "Keyword leaderboard (server-wide).")
+        title = f"Top {len(rows)} for '{kw}'"
         if not rows:
+            emb = base_embed(title, "Keyword leaderboard (server-wide).")
             emb.description = "_No counts yet._"
-        else:
-            lines = []
-            for i, r in enumerate(rows, start=1):
-                uid = int(r["user_id"])
-                total = int(r["total"])
-                lines.append(f"**{i}.** {user_mention(uid)} — **{total}**")
-            emb.add_field(name="Leaderboard", value="\n".join(lines), inline=False)
+            await interaction.response.send_message(embed=emb, allowed_mentions=safe_allowed_mentions())
+            return
 
-        await interaction.followup.send(embed=emb, allowed_mentions=safe_allowed_mentions())
+        lines = []
+        for i, r in enumerate(rows, start=1):
+            uid = int(r["user_id"])
+            total = int(r["total"])
+            lines.append(f"**{i}.** {user_mention(uid)} — **{total}**")
+
+        embeds: list[discord.Embed] = []
+        chunks = _chunk(lines, 15)
+        for pi, chunk in enumerate(chunks, start=1):
+            emb = base_embed(title, "Keyword leaderboard (server-wide).")
+            emb.add_field(
+                name=f"Leaderboard — Page {pi}/{len(chunks)}",
+                value="\n".join(chunk),
+                inline=False,
+            )
+            embeds.append(emb)
+
+        view = Paginator(embeds, author_id=int(interaction.user.id))
+        await interaction.response.send_message(
+            embed=view.first_embed(),
+            view=view,
+            allowed_mentions=safe_allowed_mentions(),
+        )
 
     @app_commands.command(name="search", description="See who used a tracked word the most in this server.")
     @app_commands.describe(word="Any tracked word", top_n="How many users to show (max 25)")
@@ -105,18 +128,33 @@ class SearchCog(commands.Cog):
         )
         total = int(total_row["total"] or 0) if total_row else 0
 
-        emb = base_embed(f"Search: '{w}'", f"Total in this server: **{total}**")
+        title = f"Search: '{w}'"
+        subtitle = f"Total in this server: **{total}**"
         if not rows:
+            emb = base_embed(title, subtitle)
             emb.description = "_No counts yet._"
-        else:
-            lines = []
-            for i, r in enumerate(rows, start=1):
-                uid = int(r["user_id"])
-                c = int(r["total"])
-                lines.append(f"**{i}.** {user_mention(uid)} — **{c}**")
-            emb.add_field(name="Top users", value="\n".join(lines), inline=False)
+            await interaction.response.send_message(embed=emb, allowed_mentions=safe_allowed_mentions())
+            return
 
-        await interaction.response.send_message(embed=emb, allowed_mentions=safe_allowed_mentions())
+        lines = []
+        for i, r in enumerate(rows, start=1):
+            uid = int(r["user_id"])
+            c = int(r["total"])
+            lines.append(f"**{i}.** {user_mention(uid)} — **{c}**")
+
+        embeds: list[discord.Embed] = []
+        chunks = _chunk(lines, 15)
+        for pi, chunk in enumerate(chunks, start=1):
+            emb = base_embed(title, subtitle)
+            emb.add_field(name=f"Top users — Page {pi}/{len(chunks)}", value="\n".join(chunk), inline=False)
+            embeds.append(emb)
+
+        view = Paginator(embeds, author_id=int(interaction.user.id))
+        await interaction.response.send_message(
+            embed=view.first_embed(),
+            view=view,
+            allowed_mentions=safe_allowed_mentions(),
+        )
 
     @app_commands.command(name="top", description="Top tracked words (stopwords ignored).")
     @app_commands.describe(user="Optional: show top words for a specific user", top_n="How many words to show (max 25)")
@@ -165,14 +203,27 @@ class SearchCog(commands.Cog):
             if len(clean) >= n:
                 break
 
-        emb = base_embed(title, "All word tracking is case-insensitive and normalizes simple variants (e.g., eat/eating).")
+        subtitle = "All word tracking is case-insensitive and normalizes simple variants (e.g., eat/eating)."
         if not clean:
+            emb = base_embed(title, subtitle)
             emb.description = "_No counts yet._"
-        else:
-            lines = [f"**{i}.** `{w}` — **{c}**" for i, (w, c) in enumerate(clean, start=1)]
-            emb.add_field(name="Top", value="\n".join(lines), inline=False)
+            await interaction.response.send_message(embed=emb, allowed_mentions=safe_allowed_mentions())
+            return
 
-        await interaction.response.send_message(embed=emb, allowed_mentions=safe_allowed_mentions())
+        lines = [f"**{i}.** `{w}` — **{c}**" for i, (w, c) in enumerate(clean, start=1)]
+        embeds: list[discord.Embed] = []
+        chunks = _chunk(lines, 15)
+        for pi, chunk in enumerate(chunks, start=1):
+            emb = base_embed(title, subtitle)
+            emb.add_field(name=f"Top — Page {pi}/{len(chunks)}", value="\n".join(chunk), inline=False)
+            embeds.append(emb)
+
+        view = Paginator(embeds, author_id=int(interaction.user.id))
+        await interaction.response.send_message(
+            embed=view.first_embed(),
+            view=view,
+            allowed_mentions=safe_allowed_mentions(),
+        )
 
 
 async def setup(bot: commands.Bot):

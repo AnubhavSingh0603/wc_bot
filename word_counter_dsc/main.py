@@ -36,6 +36,8 @@ class WCBot(commands.Bot):
         intents.guilds = True
         intents.members = True
         intents.messages = True
+        # Needed for reaction tracking (emoji reactions)
+        intents.reactions = True
         intents.message_content = bool(REQUIRE_MESSAGE_CONTENT_INTENT)
 
         super().__init__(command_prefix="!", intents=intents)

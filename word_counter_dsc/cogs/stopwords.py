@@ -10,6 +10,7 @@ from word_counter_dsc.utils import split_csv_words, safe_allowed_mentions
 from word_counter_dsc.stopwords_core import CORE_STOPWORDS
 
 from word_counter_dsc.ui.theme import base_embed
+from word_counter_dsc.ui.pagination import Paginator
 
 # Core stopwords are built-in and never counted.
 # Server stopwords are extra per-server exclusions.
@@ -32,15 +33,55 @@ class StopwordsCog(commands.GroupCog, group_name="stopword", group_description="
         server_words = [str(r["word"]) for r in rows]
         core_words = sorted(CORE_STOPWORDS)
 
-        emb = base_embed("Stopwords", "Core stopwords are built-in and never counted. Server stopwords are extra exclusions for this server.")
-        emb.add_field(
-            name=f"Core stopwords ({len(core_words)})",
-            value=("• " + "\n• ".join(core_words[:120])) if core_words else "_(none)_",
-            inline=False,
+        page_size = 15
+        embeds: list[discord.Embed] = []
+
+        # Server stopwords pages (first)
+        if server_words:
+            for i in range(0, len(server_words), page_size):
+                chunk = server_words[i : i + page_size]
+                page_no = (i // page_size) + 1
+                total_pages = (len(server_words) + page_size - 1) // page_size
+                emb = base_embed(
+                    "Stopwords — Server",
+                    "Server stopwords are extra exclusions for this server (ignored and purged).",
+                )
+                emb.add_field(
+                    name=f"Server stopwords ({len(server_words)}) — Page {page_no}/{total_pages}",
+                    value="\n".join([f"• {w}" for w in chunk]) or "—",
+                    inline=False,
+                )
+                embeds.append(emb)
+        else:
+            emb = base_embed(
+                "Stopwords — Server",
+                "Server stopwords are extra exclusions for this server (ignored and purged).",
+            )
+            emb.description = "_No server stopwords yet. Add some with /stopword add._"
+            embeds.append(emb)
+
+        # Core stopwords pages (after)
+        for i in range(0, len(core_words), page_size):
+            chunk = core_words[i : i + page_size]
+            page_no = (i // page_size) + 1
+            total_pages = (len(core_words) + page_size - 1) // page_size
+            emb = base_embed(
+                "Stopwords — Core",
+                "Core stopwords are built-in and never counted.",
+            )
+            emb.add_field(
+                name=f"Core stopwords ({len(core_words)}) — Page {page_no}/{total_pages}",
+                value="\n".join([f"• {w}" for w in chunk]) or "—",
+                inline=False,
+            )
+            embeds.append(emb)
+
+        view = Paginator(embeds, author_id=int(interaction.user.id))
+        await interaction.response.send_message(
+            embed=view.first_embed(),
+            view=view,
+            allowed_mentions=safe_allowed_mentions(),
         )
-        if len(core_words) > 120:
-            emb.set_footer(text=f"Showing first 120 core stopwords. Use /stopword list_server for server extras.")
-        await interaction.response.send_message(embed=emb, allowed_mentions=safe_allowed_mentions())
 
     @app_commands.command(name="add", description="Add one or more stopwords (comma/space separated).")
     @app_commands.describe(words="Example: the, and, lol")

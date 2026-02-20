@@ -76,17 +76,29 @@ class ProfileCog(commands.Cog):
 
         e1.add_field(name="Fun facts", value="\n".join(facts), inline=False)
 
-        # ---- Page 2: All keyword counts ----
-        e2 = base_embed(f"Keyword Stats — {user.display_name}", "Your tracked keyword counts in this server.")
+        # ---- Pages 2+: All keyword counts (15 per page) ----
+        embeds = [e1]
         if not kw_totals:
+            e2 = base_embed(f"Keyword Stats — {user.display_name}", "Your tracked keyword counts in this server.")
             e2.description = "_No keyword counts yet._"
-        else:
-            lines = [f"• `{kw}` — **{cnt}**" for kw, cnt in kw_totals[:50]]
-            e2.add_field(name="Counts", value="\n".join(lines), inline=False)
-            if len(kw_totals) > 50:
-                e2.set_footer(text=f"Showing first 50 of {len(kw_totals)} keywords.")
+            embeds.append(e2)
+            return embeds
 
-        return [e1, e2]
+        page_size = 15
+        lines_all = [f"• `{kw}` — **{cnt}**" for kw, cnt in kw_totals]
+        total_pages = (len(lines_all) + page_size - 1) // page_size
+        for i in range(0, len(lines_all), page_size):
+            chunk = lines_all[i : i + page_size]
+            page_no = (i // page_size) + 1
+            e = base_embed(f"Keyword Stats — {user.display_name}", "Your tracked keyword counts in this server.")
+            e.add_field(
+                name=f"Counts ({len(lines_all)}) — Page {page_no}/{total_pages}",
+                value="\n".join(chunk),
+                inline=False,
+            )
+            embeds.append(e)
+
+        return embeds
 
     @app_commands.command(name="me", description="Show your profile.")
     async def me(self, interaction: discord.Interaction):
