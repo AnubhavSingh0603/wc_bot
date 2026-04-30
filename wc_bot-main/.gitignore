@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtualenv
+.venv/
+venv/
+# Local env secrets
+.env
+word_counter_dsc/.env
+# Local databases
+word_counts.db
+word_counts.db-shm
+word_counts.db-wal
+word_counter_dsc/word_counts.db
+# OS
+.DS_Store
+Thumbs.db
+bot token and DB URL.txt
+!/.env.example
