@@ -323,36 +323,93 @@ def keyword_root_forms(keyword: str) -> set[str]:
     return {f for f in forms if f}
 
 
+def _embedded_keyword_match(tok: str, root: str) -> bool:
+    """Conservative embedded matching for configured keywords.
+
+    Intended behavior for a configured keyword such as ``ass``:
+      ✅ ass, asses, assfuck, assfuckery, asshole, dumbass, hoeass
+      ❌ cassie, classic, assassin, assist, assume, pass, class
+
+    The matcher is generic for all configured keywords, but it treats very
+    short roots more carefully because 3-letter substrings create many false
+    positives. Longer roots are safer to match inside compounds.
+    """
+    if not tok or not root or len(root) < 3:
+        return False
+
+    if tok == root:
+        return True
+
+    # Exact/stemmed inflections: fuck/fucks/fucking/fucked, ass/asses, etc.
+    tok_forms = {tok, stem_word(tok), porter_stem(tok)}
+    root_forms = {root, stem_word(root), porter_stem(root)}
+    if tok_forms & root_forms:
+        return True
+
+    # Prefix compounds/suffixes: assfuck, assfuckery, asshole, fucker, fucking.
+    # For short roots, reject vowel-starting tails to avoid assassin/assist/assume.
+    if tok.startswith(root) and len(tok) > len(root):
+        tail = tok[len(root):]
+        # Exact simple inflections only. Using startswith("er") would make
+        # unrelated words such as caterpillar match cat.
+        if tail in {"s", "es", "ed", "er", "ers", "ing", "y"}:
+            return True
+        if len(root) <= 3 and root[-1] not in "aeiouy" and tail[0] in "aeiouy":
+            return False
+        return True
+
+    # Suffix compounds: dumbass, badass, hoeass. Require a meaningful prefix so
+    # simple words like pass/class/grass do not become ass hits.
+    if tok.endswith(root) and len(tok) > len(root):
+        head = tok[:-len(root)]
+        return len(head) >= 3
+
+    # Middle embedded compounds are useful for roots like fuck in
+    # absofuckinglutely/assfuckery, but too risky for 3-letter roots like ass.
+    if len(root) >= 4 and root in tok:
+        return True
+
+    # Doubled-letter variants: tit -> titties / mustitties.
+    if len(root) <= 4:
+        doubled = root + root[-1]
+        # Covers doubled-consonant slang/inflections such as tit -> titties
+        # and embedded compounds like mustitties, without using broad substring
+        # matching for every 3-letter root.
+        if doubled in tok:
+            return True
+
+    return False
+
+
 def token_matches_keyword(token: str, keyword: str) -> bool:
     """Return True when a token should count toward a configured keyword.
 
-    Examples: fuck/fucks/fucking/absofuckinglutely -> fuck and
-    tit/tits/titties/mustitties -> tit, when those roots are configured.
+    This is used for every configured keyword, not a hard-coded special case.
     """
     tok = compact_latin_word(token)
     if not tok:
         return False
+
     for root in keyword_root_forms(keyword):
-        if not root:
-            continue
-        if tok == root or root in tok:
+        if _embedded_keyword_match(tok, root):
             return True
-        if len(root) <= 4:
-            doubled = root + root[-1]
-            if doubled in tok:
-                return True
     return False
 
 
 def count_configured_keywords(tokens: Iterable[str], keywords: Iterable[str]) -> Dict[str, int]:
-    """Count configured keywords canonically from tokenized message text."""
+    """Count configured keywords canonically from tokenized message text.
+
+    Each configured keyword is evaluated independently. This matters for words
+    that intentionally contain multiple configured roots, for example:
+      - ``hoeass`` should count for both ``hoe`` and ``ass`` when both exist
+      - ``assfuckery`` should count for both ``ass`` and ``fuck`` when both exist
+    """
     keyword_list = sorted({normalize_word(k) for k in keywords if normalize_word(k)}, key=len, reverse=True)
     counts: Dict[str, int] = {kw: 0 for kw in keyword_list}
     for tok in tokens:
         for kw in keyword_list:
             if token_matches_keyword(tok, kw):
                 counts[kw] += 1
-                break
     return {kw: c for kw, c in counts.items() if c}
 
 def build_keyword_regex(keyword: str, aliases: Sequence[str] | None = None) -> re.Pattern:

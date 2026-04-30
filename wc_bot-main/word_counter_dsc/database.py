@@ -302,6 +302,23 @@ class DBX:
     async def execute(self, sql: str, params: Any = None) -> Any:
         raise NotImplementedError
 
+    async def execute_many(self, sql: str, seq_of_params: Iterable[Any]) -> Any:
+        raise NotImplementedError
+
+    async def bulk_upsert_word_counts(self, rows: Iterable[tuple[int, int, int, str, int, int]]) -> int:
+        rows_list = list(rows)
+        if not rows_list:
+            return 0
+        sql = """
+        INSERT INTO word_counts (guild_id, channel_id, user_id, word, count, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(guild_id, channel_id, user_id, word)
+        DO UPDATE SET count = word_counts.count + excluded.count,
+                      updated_at = excluded.updated_at
+        """
+        await self.execute_many(sql, rows_list)
+        return len(rows_list)
+
     async def fetchone(self, sql: str, params: Any = None) -> Optional[Any]:
         raise NotImplementedError
 
@@ -440,6 +457,15 @@ class SQLiteDBX(DBX):
     async def execute(self, sql: str, params: Any = None) -> Any:
         assert self._conn is not None
         cur = await self._conn.execute(self._q(sql), tuple(self._norm_params(params)))
+        await self._conn.commit()
+        return cur.rowcount
+
+    async def execute_many(self, sql: str, seq_of_params: Iterable[Any]) -> Any:
+        assert self._conn is not None
+        params_list = [tuple(self._norm_params(p)) for p in seq_of_params]
+        if not params_list:
+            return 0
+        cur = await self._conn.executemany(self._q(sql), params_list)
         await self._conn.commit()
         return cur.rowcount
 
@@ -600,6 +626,15 @@ class PostgresDBX(DBX):
         assert self._pool is not None
         async with self._pool.acquire() as conn:
             return await conn.execute(self._q(sql), *self._norm_params(params))
+
+    async def execute_many(self, sql: str, seq_of_params: Iterable[Any]) -> Any:
+        assert self._pool is not None
+        params_list = [tuple(self._norm_params(p)) for p in seq_of_params]
+        if not params_list:
+            return 0
+        async with self._pool.acquire() as conn:
+            await conn.executemany(self._q(sql), params_list)
+        return len(params_list)
 
     async def fetchone(self, sql: str, params: Any = None) -> Optional[Any]:
         assert self._pool is not None

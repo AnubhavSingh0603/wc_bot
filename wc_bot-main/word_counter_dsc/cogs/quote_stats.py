@@ -237,7 +237,7 @@ class QuoteStatsCog(commands.Cog):
             source_message_id=int(source.id),
             trigger_message_id=int(message.id),
             trigger_bot_user_id=(int(getattr(trigger_bot, "id")) if getattr(trigger_bot, "id", None) is not None else None),
-            trigger_text=(getattr(message, "content", None) or None),
+            trigger_text=((getattr(message, "content", None) or "")[:100] or None),
         )
         return inserted
 

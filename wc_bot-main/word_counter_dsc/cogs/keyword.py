@@ -8,6 +8,7 @@ from discord.ext import commands
 
 from word_counter_dsc.utils import split_csv_words
 from word_counter_dsc.utils import safe_allowed_mentions
+from word_counter_dsc.utils import count_configured_keywords, tokenize
 from word_counter_dsc.ui.theme import base_embed
 from word_counter_dsc.ui.pagination import Paginator
 from word_counter_dsc.stopwords_core import CORE_STOPWORDS
@@ -19,6 +20,15 @@ class KeywordCog(commands.GroupCog, group_name="keyword", group_description="Man
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         super().__init__()
+
+    def _clear_tracker_cache(self, guild_id: int, *, keywords: bool = False, abbreviations: bool = False) -> None:
+        tracker = self.bot.get_cog("TrackerCog")
+        if not tracker:
+            return
+        if keywords and hasattr(tracker, "clear_keyword_cache"):
+            tracker.clear_keyword_cache(guild_id)
+        if abbreviations and hasattr(tracker, "clear_abbreviation_cache"):
+            tracker.clear_abbreviation_cache(guild_id)
 
     # ---------------------------
     # /keyword list  (PUBLIC)
@@ -92,6 +102,8 @@ class KeywordCog(commands.GroupCog, group_name="keyword", group_description="Man
                 (gid, kw, now),
             )
 
+        self._clear_tracker_cache(gid, keywords=True)
+
         await interaction.response.send_message(
             f"Added {len(allowed)} keyword(s): " + (", ".join(allowed) if allowed else "(none)" ) + ("\nSkipped (stopwords): " + ", ".join(skipped) if skipped else ""),
             ephemeral=True,
@@ -116,10 +128,8 @@ class KeywordCog(commands.GroupCog, group_name="keyword", group_description="Man
                 "DELETE FROM keywords WHERE guild_id=? AND word=?",
                 (gid, kw),
             )
-            await self.bot.dbx.execute(
-                "DELETE FROM word_counts WHERE guild_id=? AND word=?",
-                (gid, kw),
-            )
+            # Keep word_counts history so removed keywords can be searched or
+            # promoted again later without losing old stats.
             await self.bot.dbx.execute(
                 "DELETE FROM keyword_medals WHERE guild_id=? AND word=?",
                 (gid, kw),
@@ -134,10 +144,61 @@ class KeywordCog(commands.GroupCog, group_name="keyword", group_description="Man
                 (gid, kw, now),
             )
 
+        self._clear_tracker_cache(gid, keywords=True)
+
         await interaction.response.send_message(
             f"Removed {len(kws)} keyword(s): " + ", ".join(kws),
             ephemeral=True,
         )
+
+
+    # ---------------------------
+    # /keyword test  (EPHEMERAL)
+    # ---------------------------
+    @app_commands.command(name="test", description="Preview which configured keywords a sample text would count.")
+    @app_commands.describe(
+        text="Sample message text to test locally before changing keywords.",
+        keywords="Optional comma/space-separated keywords to test instead of the server list.",
+    )
+    async def test_keywords(self, interaction: discord.Interaction, text: str, keywords: str | None = None):
+        assert self.bot.dbx is not None
+        gid = int(interaction.guild_id or 0)
+
+        if keywords:
+            kw_set = sorted(set(split_csv_words(keywords)))
+        else:
+            rows = await self.bot.dbx.fetchall(
+                "SELECT word FROM keywords WHERE guild_id=? ORDER BY word ASC",
+                (gid,),
+            )
+            kw_set = [str(r["word"]) for r in rows]
+
+        if not kw_set:
+            await interaction.response.send_message(
+                "No keywords available to test. Add keywords first or pass the optional `keywords` field.",
+                ephemeral=True,
+            )
+            return
+
+        tokens = tokenize(text)
+        matches = count_configured_keywords(tokens, kw_set)
+
+        lines: list[str] = []
+        for tok in tokens[:30]:
+            hit_words = [kw for kw in kw_set if count_configured_keywords([tok], [kw]).get(kw, 0)]
+            if hit_words:
+                lines.append(f"• `{tok}` → " + ", ".join(f"`{kw}`" for kw in hit_words))
+            else:
+                lines.append(f"• `{tok}` → _no keyword hit_")
+
+        if len(tokens) > 30:
+            lines.append(f"…and {len(tokens) - 30} more token(s).")
+
+        summary = ", ".join(f"`{kw}`×{count}" for kw, count in sorted(matches.items())) or "_No keyword hits._"
+        emb = base_embed("Keyword Match Test", "Preview only — this does not write stats.")
+        emb.add_field(name="Summary", value=summary, inline=False)
+        emb.add_field(name="Token results", value="\n".join(lines)[:1000] if lines else "_No tokens found._", inline=False)
+        await interaction.response.send_message(embed=emb, ephemeral=True, allowed_mentions=safe_allowed_mentions())
 
     # ---------------------------
     # Abbreviations
@@ -186,6 +247,8 @@ class KeywordCog(commands.GroupCog, group_name="keyword", group_description="Man
                 """,
                 (gid, abbr, exp, now),
             )
+
+        self._clear_tracker_cache(gid, abbreviations=True)
 
         await interaction.response.send_message(
             f"Saved {len(pairs)} abbreviation rule(s).",
@@ -243,6 +306,8 @@ class KeywordCog(commands.GroupCog, group_name="keyword", group_description="Man
                 "DELETE FROM abbreviations WHERE guild_id=? AND abbreviation=?",
                 (gid, a),
             )
+
+        self._clear_tracker_cache(gid, abbreviations=True)
 
         await interaction.response.send_message(f"Removed: {', '.join(items)}", ephemeral=True)
 
