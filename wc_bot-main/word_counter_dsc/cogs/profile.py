@@ -10,10 +10,6 @@ from word_counter_dsc.ui.theme import base_embed
 from word_counter_dsc.stopwords_core import CORE_STOPWORDS
 
 
-# NOTE:
-#   /me      -> your own profile
-#   /profile -> someone else's profile (optional user)
-
 class ProfileCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -214,16 +210,7 @@ class ProfileCog(commands.Cog):
         )
         return e
 
-    @app_commands.command(name="me", description="Show your profile.")
-    async def me(self, interaction: discord.Interaction):
-        if not interaction.response.is_done():
-            await interaction.response.defer(thinking=True)
-        gid = int(interaction.guild_id or 0)
-        embeds = await self._build_profile_embeds(gid, interaction.user)
-        view = Paginator(embeds, author_id=int(interaction.user.id))
-        await interaction.followup.send(embed=view.first_embed(), view=view, allowed_mentions=safe_allowed_mentions())
-
-    @app_commands.command(name="profile", description="Show a user's profile (defaults to you).")
+    @app_commands.command(name="profile", description="Show your profile, or another member's profile.")
     async def profile(self, interaction: discord.Interaction, user: discord.User | None = None):
         if not interaction.response.is_done():
             await interaction.response.defer(thinking=True)

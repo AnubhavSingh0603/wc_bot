@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 from word_counter_dsc.config import (
@@ -11,7 +12,9 @@ from word_counter_dsc.config import (
     TITLE_TEMPLATES,
     KEYWORD_REMOVAL_GRACE_SECONDS,
 )
-from word_counter_dsc.utils import keyword_display, progress_bar
+from word_counter_dsc.utils import keyword_display, progress_bar, safe_allowed_mentions
+from word_counter_dsc.ui.theme import base_embed
+from word_counter_dsc.ui.pagination import Paginator
 
 
 def tier_for_count(n: int) -> int:
@@ -205,6 +208,70 @@ class MedalsCog(commands.Cog):
                 self.bot.logger.exception("Failed to send medal congrats fallback message")
         except Exception:
             self.bot.logger.exception("Failed to send medal congrats message")
+
+
+    async def medals_for_user(self, guild_id: int, user_id: int, limit: int | None = None):
+        assert self.bot.dbx is not None
+        query = """
+            SELECT word, tier, total_count
+            FROM keyword_medals
+            WHERE guild_id=? AND user_id=?
+            ORDER BY tier DESC, total_count DESC, word ASC
+        """
+        params: tuple = (guild_id, user_id)
+        if limit is not None:
+            query += " LIMIT ?"
+            params = (guild_id, user_id, int(limit))
+        rows = await self.bot.dbx.fetchall(query, params)
+        out = []
+        for r in rows:
+            w = str(r["word"])
+            tier = int(r["tier"])
+            total = int(r["total_count"] or 0)
+            nxt = next_threshold(total)
+            out.append(dict(keyword=w, tier=tier, total=total, next=nxt, title=title_for(w, tier), emoji=emoji_for(tier)))
+        return out
+
+    @app_commands.command(name="medals", description="Show your medals, or another member's medals.")
+    @app_commands.describe(user="Optional: member to inspect. Leave blank to show your own medals.")
+    async def medals_cmd(self, interaction: discord.Interaction, user: discord.Member | None = None):
+        if not interaction.guild or not self.bot.dbx:
+            await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
+            return
+        await interaction.response.defer(thinking=True)
+        target = user or interaction.user
+        medals = await self.medals_for_user(int(interaction.guild.id), int(target.id))
+        title = f"🏅 Medals — {target.display_name}"
+        thumb_url = getattr(getattr(target, "display_avatar", None), "url", None)
+        if not medals:
+            emb = base_embed(title, "No medals yet. Use tracked keywords to unlock titles.")
+            if thumb_url:
+                emb.set_thumbnail(url=thumb_url)
+            emb.add_field(name="How to earn medals", value="Chat naturally with server keywords. Higher counts unlock higher medal tiers.", inline=False)
+            await interaction.followup.send(embed=emb, allowed_mentions=safe_allowed_mentions())
+            return
+
+        page_size = 10
+        embeds: list[discord.Embed] = []
+        for i in range(0, len(medals), page_size):
+            chunk = medals[i:i + page_size]
+            page_no = i // page_size + 1
+            total_pages = (len(medals) + page_size - 1) // page_size
+            emb = base_embed(title, f"Owned medals: **{len(medals)}** · Page {page_no}/{total_pages}")
+            if thumb_url:
+                emb.set_thumbnail(url=thumb_url)
+            lines = []
+            for m in chunk:
+                if m["next"]:
+                    bar = progress_bar(m["total"], m["next"])
+                    lines.append(f"{m['emoji']} **{m['title']}** — `{m['keyword']}`\n`{bar}`  **{m['total']}**/{m['next']}")
+                else:
+                    lines.append(f"{m['emoji']} **{m['title']}** — `{m['keyword']}`\n`MAXED`  **{m['total']}**")
+            emb.add_field(name="Medal list", value="\n\n".join(lines), inline=False)
+            embeds.append(emb)
+
+        view = Paginator(embeds, author_id=int(interaction.user.id))
+        await interaction.followup.send(embed=view.first_embed(), view=view, allowed_mentions=safe_allowed_mentions())
 
     async def top_medals_for_user(self, guild_id: int, user_id: int, limit: int = 3):
         assert self.bot.dbx is not None

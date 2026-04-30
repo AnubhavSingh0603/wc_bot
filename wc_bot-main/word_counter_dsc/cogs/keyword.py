@@ -14,6 +14,25 @@ from word_counter_dsc.ui.pagination import Paginator
 from word_counter_dsc.stopwords_core import CORE_STOPWORDS
 
 
+def _is_keyword_admin(interaction: discord.Interaction) -> bool:
+    user = interaction.user
+    if not isinstance(user, discord.Member):
+        return False
+    perms = user.guild_permissions
+    return bool(perms.administrator or perms.manage_guild or perms.manage_messages)
+
+
+async def _require_keyword_admin(interaction: discord.Interaction) -> bool:
+    if _is_keyword_admin(interaction):
+        return True
+    await interaction.response.send_message(
+        "🔒 You need Administrator, Manage Server, or Manage Messages permission to change keyword settings.",
+        ephemeral=True,
+        allowed_mentions=safe_allowed_mentions(),
+    )
+    return False
+
+
 class KeywordCog(commands.GroupCog, group_name="keyword", group_description="Manage tracked keywords"):
     """Slash-command group: /keyword ..."""
 
@@ -74,10 +93,13 @@ class KeywordCog(commands.GroupCog, group_name="keyword", group_description="Man
     # ---------------------------
     # /keyword add  (EPHEMERAL)
     # ---------------------------
+    @app_commands.default_permissions(manage_messages=True)
     @app_commands.command(name="add", description="Add one or more keywords (comma/space separated).")
     @app_commands.describe(words="Example: hello, world, foo")
     async def add_keywords(self, interaction: discord.Interaction, words: str):
         assert self.bot.dbx is not None
+        if not await _require_keyword_admin(interaction):
+            return
         gid = int(interaction.guild_id or 0)
         kws = sorted(set(split_csv_words(words)))
         if not kws:
@@ -105,17 +127,20 @@ class KeywordCog(commands.GroupCog, group_name="keyword", group_description="Man
         self._clear_tracker_cache(gid, keywords=True)
 
         await interaction.response.send_message(
-            f"Added {len(allowed)} keyword(s): " + (", ".join(allowed) if allowed else "(none)" ) + ("\nSkipped (stopwords): " + ", ".join(skipped) if skipped else ""),
+            f"✅ Added **{len(allowed)}** keyword(s): " + (", ".join(f"`{w}`" for w in allowed) if allowed else "_(none)_") + ("\n⚠️ Skipped stopword(s): " + ", ".join(f"`{w}`" for w in skipped) if skipped else ""),
             ephemeral=True,
         )
 
     # ---------------------------
     # /keyword remove (EPHEMERAL)
     # ---------------------------
+    @app_commands.default_permissions(manage_messages=True)
     @app_commands.command(name="remove", description="Remove one or more keywords (comma/space separated).")
     @app_commands.describe(words="Example: hello, world")
     async def remove_keywords(self, interaction: discord.Interaction, words: str):
         assert self.bot.dbx is not None
+        if not await _require_keyword_admin(interaction):
+            return
         gid = int(interaction.guild_id or 0)
         kws = sorted(set(split_csv_words(words)))
         if not kws:
@@ -147,7 +172,7 @@ class KeywordCog(commands.GroupCog, group_name="keyword", group_description="Man
         self._clear_tracker_cache(gid, keywords=True)
 
         await interaction.response.send_message(
-            f"Removed {len(kws)} keyword(s): " + ", ".join(kws),
+            f"✅ Removed **{len(kws)}** keyword(s): " + ", ".join(f"`{w}`" for w in kws) + "\nStored word history was kept, so `/search` can still find old counts.",
             ephemeral=True,
         )
 
@@ -203,10 +228,13 @@ class KeywordCog(commands.GroupCog, group_name="keyword", group_description="Man
     # ---------------------------
     # Abbreviations
     # ---------------------------
+    @app_commands.default_permissions(manage_messages=True)
     @app_commands.command(name="abbrev_add", description="Add abbreviations: abbr=phrase. (Ephemeral)")
     @app_commands.describe(rules="Example: wtf=fuck | lol=fuck this | (use commas/newlines for multiple)")
     async def add_abbrev(self, interaction: discord.Interaction, rules: str):
         assert self.bot.dbx is not None
+        if not await _require_keyword_admin(interaction):
+            return
         gid = int(interaction.guild_id or 0)
 
         # get keyword set to validate expansions
@@ -251,7 +279,7 @@ class KeywordCog(commands.GroupCog, group_name="keyword", group_description="Man
         self._clear_tracker_cache(gid, abbreviations=True)
 
         await interaction.response.send_message(
-            f"Saved {len(pairs)} abbreviation rule(s).",
+            f"✅ Saved **{len(pairs)}** abbreviation rule(s).",
             ephemeral=True,
         )
 
@@ -291,10 +319,13 @@ class KeywordCog(commands.GroupCog, group_name="keyword", group_description="Man
             allowed_mentions=safe_allowed_mentions(),
         )
 
+    @app_commands.default_permissions(manage_messages=True)
     @app_commands.command(name="abbrev_remove", description="Remove abbreviations by name (comma/space). (Ephemeral)")
     @app_commands.describe(abbrs="Example: wtf, lol")
     async def remove_abbrev(self, interaction: discord.Interaction, abbrs: str):
         assert self.bot.dbx is not None
+        if not await _require_keyword_admin(interaction):
+            return
         gid = int(interaction.guild_id or 0)
         items = sorted(set(split_csv_words(abbrs)))
         if not items:
@@ -309,7 +340,7 @@ class KeywordCog(commands.GroupCog, group_name="keyword", group_description="Man
 
         self._clear_tracker_cache(gid, abbreviations=True)
 
-        await interaction.response.send_message(f"Removed: {', '.join(items)}", ephemeral=True)
+        await interaction.response.send_message(f"✅ Removed abbreviation(s): {', '.join(f'`{x}`' for x in items)}", ephemeral=True)
 
 
 async def setup(bot: commands.Bot):

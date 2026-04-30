@@ -341,7 +341,7 @@ class QuoteStatsCog(commands.Cog):
         await interaction.response.send_message(embed=emb, allowed_mentions=safe_allowed_mentions())
 
     @app_commands.command(name="quotes_backfill", description="Admin: scan recent channel history for quote-bot reply triggers.")
-    @app_commands.default_permissions(administrator=True)
+    @app_commands.default_permissions(manage_guild=True)
     async def quotes_backfill(self, interaction: discord.Interaction, channel: discord.TextChannel, limit: int | None = 1000):
         member = interaction.user if isinstance(interaction.user, discord.Member) else None
         if not member or not (member.guild_permissions.administrator or member.guild_permissions.manage_guild):

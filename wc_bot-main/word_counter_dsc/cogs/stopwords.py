@@ -12,6 +12,26 @@ from word_counter_dsc.stopwords_core import CORE_STOPWORDS
 from word_counter_dsc.ui.theme import base_embed
 from word_counter_dsc.ui.pagination import Paginator
 
+
+def _is_stopword_admin(interaction: discord.Interaction) -> bool:
+    user = interaction.user
+    if not isinstance(user, discord.Member):
+        return False
+    perms = user.guild_permissions
+    return bool(perms.administrator or perms.manage_guild or perms.manage_messages)
+
+
+async def _require_stopword_admin(interaction: discord.Interaction) -> bool:
+    if _is_stopword_admin(interaction):
+        return True
+    await interaction.response.send_message(
+        "🔒 You need Administrator, Manage Server, or Manage Messages permission to manage stopwords.",
+        ephemeral=True,
+        allowed_mentions=safe_allowed_mentions(),
+    )
+    return False
+
+
 # Core stopwords are built-in and never counted.
 # Server stopwords are extra per-server exclusions.
 EXTRA_STOPWORDS: set[str] = set()
@@ -22,9 +42,12 @@ class StopwordsCog(commands.GroupCog, group_name="stopword", group_description="
         self.bot = bot
         super().__init__()
 
+    @app_commands.default_permissions(manage_messages=True)
     @app_commands.command(name="list", description="Show stopwords for this server.")
     async def list_sw(self, interaction: discord.Interaction):
         assert self.bot.dbx is not None
+        if not await _require_stopword_admin(interaction):
+            return
         gid = int(interaction.guild_id or 0)
         rows = await self.bot.dbx.fetchall(
             "SELECT word FROM stopwords WHERE guild_id=? ORDER BY word ASC",
@@ -83,10 +106,13 @@ class StopwordsCog(commands.GroupCog, group_name="stopword", group_description="
             allowed_mentions=safe_allowed_mentions(),
         )
 
+    @app_commands.default_permissions(manage_messages=True)
     @app_commands.command(name="add", description="Add one or more stopwords (comma/space separated).")
     @app_commands.describe(words="Example: the, and, lol")
     async def add_sw(self, interaction: discord.Interaction, words: str):
         assert self.bot.dbx is not None
+        if not await _require_stopword_admin(interaction):
+            return
         gid = int(interaction.guild_id or 0)
         items = sorted(set(split_csv_words(words)))
         if not items:
@@ -115,13 +141,16 @@ class StopwordsCog(commands.GroupCog, group_name="stopword", group_description="
 
         purged_total = sum(int(v) for v in purged.values())
         await interaction.response.send_message(
-            f"Added {len(items)} stopword(s). Purged {purged_total} old stopword-related row(s).",
+            f"✅ Added **{len(items)}** stopword(s). Purged **{purged_total}** old stopword-related row(s).",
             ephemeral=True,
         )
 
+    @app_commands.default_permissions(manage_messages=True)
     @app_commands.command(name="remove", description="Remove one or more stopwords (comma/space separated).")
     async def remove_sw(self, interaction: discord.Interaction, words: str):
         assert self.bot.dbx is not None
+        if not await _require_stopword_admin(interaction):
+            return
         gid = int(interaction.guild_id or 0)
         items = sorted(set(split_csv_words(words)))
         if not items:
@@ -137,11 +166,14 @@ class StopwordsCog(commands.GroupCog, group_name="stopword", group_description="
         if tracker is not None and hasattr(tracker, "clear_stopword_cache"):
             tracker.clear_stopword_cache(gid)
 
-        await interaction.response.send_message(f"Removed {len(items)} stopword(s).", ephemeral=True)
+        await interaction.response.send_message(f"✅ Removed **{len(items)}** stopword(s).", ephemeral=True)
 
+    @app_commands.default_permissions(manage_messages=True)
     @app_commands.command(name="seed", description="Seed a good default stopword list (Ephemeral).")
     async def seed_defaults(self, interaction: discord.Interaction):
         assert self.bot.dbx is not None
+        if not await _require_stopword_admin(interaction):
+            return
         gid = int(interaction.guild_id or 0)
         now = int(time.time())
         for w in sorted(EXTRA_STOPWORDS):

@@ -39,7 +39,7 @@ class QuoteConfigCog(commands.GroupCog, name="quote_config"):
         return True
 
     @app_commands.command(name="list", description="List configured quote trigger bots and name fragments.")
-    @app_commands.default_permissions(administrator=True)
+    @app_commands.default_permissions(manage_guild=True)
     async def list_config(self, interaction: discord.Interaction):
         if not await self._guard(interaction):
             return
@@ -55,7 +55,7 @@ class QuoteConfigCog(commands.GroupCog, name="quote_config"):
         )
 
     @app_commands.command(name="add_bot", description="Add a quote trigger bot user ID for this server.")
-    @app_commands.default_permissions(administrator=True)
+    @app_commands.default_permissions(manage_guild=True)
     async def add_bot(self, interaction: discord.Interaction, bot_user_id: str):
         if not await self._guard(interaction):
             return
@@ -77,7 +77,7 @@ class QuoteConfigCog(commands.GroupCog, name="quote_config"):
         await interaction.response.send_message(f"Added quote trigger bot ID `{bid}`.", ephemeral=True)
 
     @app_commands.command(name="remove_bot", description="Remove a quote trigger bot user ID for this server.")
-    @app_commands.default_permissions(administrator=True)
+    @app_commands.default_permissions(manage_guild=True)
     async def remove_bot(self, interaction: discord.Interaction, bot_user_id: str):
         if not await self._guard(interaction):
             return
@@ -92,7 +92,7 @@ class QuoteConfigCog(commands.GroupCog, name="quote_config"):
         await interaction.response.send_message(f"Removed quote trigger bot ID `{bid}` if it existed.", ephemeral=True)
 
     @app_commands.command(name="add_name", description="Add a quote trigger name fragment for this server.")
-    @app_commands.default_permissions(administrator=True)
+    @app_commands.default_permissions(manage_guild=True)
     async def add_name(self, interaction: discord.Interaction, name_fragment: str):
         if not await self._guard(interaction):
             return
@@ -113,7 +113,7 @@ class QuoteConfigCog(commands.GroupCog, name="quote_config"):
         await interaction.response.send_message(f"Added quote trigger name fragment `{frag}`.", ephemeral=True)
 
     @app_commands.command(name="remove_name", description="Remove a quote trigger name fragment for this server.")
-    @app_commands.default_permissions(administrator=True)
+    @app_commands.default_permissions(manage_guild=True)
     async def remove_name(self, interaction: discord.Interaction, name_fragment: str):
         if not await self._guard(interaction):
             return

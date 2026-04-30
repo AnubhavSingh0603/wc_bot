@@ -27,74 +27,7 @@ class SearchCog(commands.Cog):
         )
         return set(CORE_STOPWORDS) | {str(r["word"]) for r in rows}
 
-    @app_commands.command(name="rank", description="Top users for a keyword in this server.")
-    @app_commands.describe(keyword="Keyword (must be in /keyword list)", top_n="How many users to show (max 25)")
-    async def rank(self, interaction: discord.Interaction, keyword: str, top_n: int | None = None):
-        assert self.bot.dbx is not None
-        gid = int(interaction.guild_id or 0)
-        kw = normalize_word(keyword)
-        n = int(top_n or DEFAULT_TOP_N)
-        n = max(1, min(n, 25))
-        if not kw:
-            await interaction.response.send_message("Please provide a keyword.", ephemeral=True)
-            return
-
-        # Validate keyword exists for this server
-        exists = await self.bot.dbx.fetchone(
-            "SELECT 1 AS ok FROM keywords WHERE guild_id=? AND word=?",
-            (gid, kw),
-        )
-        if not exists:
-            await interaction.response.send_message(
-                f"`{kw}` is not in /keyword list for this server.",
-                ephemeral=True,
-            )
-            return
-
-        rows = await self.bot.dbx.fetchall(
-            """
-            SELECT user_id, SUM(count) AS total
-            FROM word_counts
-            WHERE guild_id=? AND word=?
-            GROUP BY user_id
-            ORDER BY total DESC
-            LIMIT ?
-            """,
-            (gid, kw, n),
-        )
-
-        title = f"Top {len(rows)} for '{kw}'"
-        if not rows:
-            emb = base_embed(title, "Keyword leaderboard (server-wide).")
-            emb.description = "_No counts yet._"
-            await interaction.response.send_message(embed=emb, allowed_mentions=safe_allowed_mentions())
-            return
-
-        lines = []
-        for i, r in enumerate(rows, start=1):
-            uid = int(r["user_id"])
-            total = int(r["total"])
-            lines.append(f"**{i}.** {user_mention(uid)} — **{total}**")
-
-        embeds: list[discord.Embed] = []
-        chunks = _chunk(lines, 15)
-        for pi, chunk in enumerate(chunks, start=1):
-            emb = base_embed(title, "Keyword leaderboard (server-wide).")
-            emb.add_field(
-                name=f"Leaderboard — Page {pi}/{len(chunks)}",
-                value="\n".join(chunk),
-                inline=False,
-            )
-            embeds.append(emb)
-
-        view = Paginator(embeds, author_id=int(interaction.user.id))
-        await interaction.response.send_message(
-            embed=view.first_embed(),
-            view=view,
-            allowed_mentions=safe_allowed_mentions(),
-        )
-
-    @app_commands.command(name="search", description="See who used a tracked word the most in this server.")
+    @app_commands.command(name="search", description="Leaderboard for any tracked word or keyword.")
     @app_commands.describe(word="Any tracked word", top_n="How many users to show (max 25)")
     async def search_word(self, interaction: discord.Interaction, word: str, top_n: int | None = None):
         assert self.bot.dbx is not None
@@ -128,8 +61,8 @@ class SearchCog(commands.Cog):
         )
         total = int(total_row["total"] or 0) if total_row else 0
 
-        title = f"Search: '{w}'"
-        subtitle = f"Total in this server: **{total}**"
+        title = f"🔎 Word Leaderboard: '{w}'"
+        subtitle = f"Server total: **{total}** · Use this for both normal words and keywords."
         if not rows:
             emb = base_embed(title, subtitle)
             emb.description = "_No counts yet._"
@@ -146,7 +79,7 @@ class SearchCog(commands.Cog):
         chunks = _chunk(lines, 15)
         for pi, chunk in enumerate(chunks, start=1):
             emb = base_embed(title, subtitle)
-            emb.add_field(name=f"Top users — Page {pi}/{len(chunks)}", value="\n".join(chunk), inline=False)
+            emb.add_field(name=f"🏆 Top users — Page {pi}/{len(chunks)}", value="\n".join(chunk), inline=False)
             embeds.append(emb)
 
         view = Paginator(embeds, author_id=int(interaction.user.id))
@@ -178,7 +111,7 @@ class SearchCog(commands.Cog):
                 """,
                 (gid, n * 3),  # fetch extra then filter stopwords
             )
-            title = f"Top tracked words (server) — showing {n}"
+            title = f"📈 Top tracked words (server) — showing {n}"
         else:
             rows = await self.bot.dbx.fetchall(
                 """
@@ -191,7 +124,7 @@ class SearchCog(commands.Cog):
                 """,
                 (gid, uid, n * 3),
             )
-            title = f"Top tracked words for {user.display_name} — showing {n}"
+            title = f"📈 Top tracked words for {user.display_name} — showing {n}"
 
         # Filter stopwords + trim
         clean = []
@@ -203,7 +136,7 @@ class SearchCog(commands.Cog):
             if len(clean) >= n:
                 break
 
-        subtitle = "All word tracking is case-insensitive and normalizes simple variants (e.g., eat/eating)."
+        subtitle = "Stopwords are ignored. Word tracking is case-insensitive and normalizes simple variants."
         if not clean:
             emb = base_embed(title, subtitle)
             emb.description = "_No counts yet._"
@@ -215,7 +148,7 @@ class SearchCog(commands.Cog):
         chunks = _chunk(lines, 15)
         for pi, chunk in enumerate(chunks, start=1):
             emb = base_embed(title, subtitle)
-            emb.add_field(name=f"Top — Page {pi}/{len(chunks)}", value="\n".join(chunk), inline=False)
+            emb.add_field(name=f"🏆 Top words — Page {pi}/{len(chunks)}", value="\n".join(chunk), inline=False)
             embeds.append(emb)
 
         view = Paginator(embeds, author_id=int(interaction.user.id))
