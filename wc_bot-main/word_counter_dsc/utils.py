@@ -323,75 +323,172 @@ def keyword_root_forms(keyword: str) -> set[str]:
     return {f for f in forms if f}
 
 
-def _embedded_keyword_match(tok: str, root: str) -> bool:
+_SUFFIX_VARIANT_TAILS = {
+    # plurals / possessive-like word endings
+    "s", "es",
+    # verbs
+    "d", "ed", "er", "ers", "ing",
+    # adjectives/adverbs/common derivations
+    "y", "ies", "ish", "ly", "ness", "ful", "less",
+    # noun/adjective derivations requested by user and common variants
+    "ity", "ities", "ility", "ilities", "able", "ible", "ability", "ibilities",
+    # common longer derivations; kept as suffix-only, not fuzzy spell correction
+    "ment", "ments", "tion", "tions", "ation", "ations", "ization", "izations",
+    "ism", "isms", "ery", "eries",
+}
+
+# Prefix-compound tails that are common enough to be intentional for short roots,
+# but not broad enough to make words like hello -> hell or caterpillar -> cat.
+_COMMON_COMPOUND_TAILS = {
+    "hole", "head", "face", "fuck", "fucker", "fucking", "fuckery", "shit", "shitter", "shitting",
+    "wipe", "hat", "bag", "lord", "king", "queen", "boy", "girl", "man", "woman", "brain",
+    "clown", "lord", "lordy", "lordship",
+}
+
+
+def _dedupe_keep_order(values: Iterable[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for v in values:
+        if v and v not in seen:
+            seen.add(v)
+            out.append(v)
+    return out
+
+
+def _suffix_variant_match(tok: str, root: str) -> bool:
+    """Strictly match exact/common suffix variants of a configured keyword.
+
+    This intentionally does not do spelling correction. For example, ``pies``
+    must never count as ``piss`` even though it is visually close.
+    """
+    if tok == root:
+        return True
+    if len(root) < 3 or len(tok) <= len(root):
+        return False
+
+    candidates = {root}
+
+    # Direct suffixes: hellish, hellity, pisses, pissed, pissing, fucker.
+    for suf in _SUFFIX_VARIANT_TAILS:
+        candidates.add(root + suf)
+
+    # Drop final silent e before some endings: love -> loving/lovable.
+    if root.endswith("e") and len(root) > 3:
+        base = root[:-1]
+        for suf in ("ing", "ed", "er", "ers", "able", "ability", "ity", "ly"):
+            candidates.add(base + suf)
+
+    # y -> ies/iness/iful style: silly -> sillies/silliness.
+    if root.endswith("y") and len(root) > 3:
+        base = root[:-1]
+        candidates.update({base + "ies", base + "iness", base + "iful", base + "ily"})
+
+    # Double-final-consonant before ed/ing/er: piss -> pissed/pissing/pisser.
+    if root[-1] not in "aeiouy" and len(root) >= 3:
+        doubled = root + root[-1]
+        for suf in ("ed", "ing", "er", "ers", "y", "ies"):
+            candidates.add(doubled + suf)
+
+    return tok in candidates
+
+
+def _embedded_keyword_match(tok: str, root: str, all_roots: set[str] | None = None) -> bool:
     """Conservative embedded matching for configured keywords.
 
-    Intended behavior for a configured keyword such as ``ass``:
-      ✅ ass, asses, assfuck, assfuckery, asshole, dumbass, hoeass
-      ❌ cassie, classic, assassin, assist, assume, pass, class
+    Goal:
+      ✅ hell/hells/hellish/hellity, piss/pissed/pissing, ass/asses
+      ✅ dumbass, hoeass, assfuck, assfuckery, asshole
+      ❌ hello->hell, pies->piss, cassie/classic/assassin->ass
 
-    The matcher is generic for all configured keywords, but it treats very
-    short roots more carefully because 3-letter substrings create many false
-    positives. Longer roots are safer to match inside compounds.
+    The rule is intentionally deterministic and does not use typo/fuzzy matching.
     """
     if not tok or not root or len(root) < 3:
         return False
 
-    if tok == root:
+    all_roots = all_roots or set()
+
+    # 1) Exact and approved suffix variants only.
+    if _suffix_variant_match(tok, root):
         return True
 
-    # Exact/stemmed inflections: fuck/fucks/fucking/fucked, ass/asses, etc.
-    tok_forms = {tok, stem_word(tok), porter_stem(tok)}
-    root_forms = {root, stem_word(root), porter_stem(root)}
-    if tok_forms & root_forms:
+    # 2) Stem equality is allowed only when it does not shrink to a tiny unsafe
+    # stem. This keeps pissed/pissing -> piss but avoids broad typo-like matches.
+    tok_forms = {stem_word(tok), porter_stem(tok)}
+    root_forms = {stem_word(root), porter_stem(root)}
+    safe_forms = {f for f in (tok_forms & root_forms) if len(f) >= max(3, min(len(root), 4))}
+    if safe_forms:
         return True
 
-    # Prefix compounds/suffixes: assfuck, assfuckery, asshole, fucker, fucking.
-    # For short roots, reject vowel-starting tails to avoid assassin/assist/assume.
+    # 3) Prefix compounds: root + meaningful tail.
     if tok.startswith(root) and len(tok) > len(root):
         tail = tok[len(root):]
-        # Exact simple inflections only. Using startswith("er") would make
-        # unrelated words such as caterpillar match cat.
-        if tail in {"s", "es", "ed", "er", "ers", "ing", "y"}:
-            return True
-        if len(root) <= 3 and root[-1] not in "aeiouy" and tail[0] in "aeiouy":
-            return False
-        return True
 
-    # Suffix compounds: dumbass, badass, hoeass. Require a meaningful prefix so
-    # simple words like pass/class/grass do not become ass hits.
+        # Configured-overlap compounds: assfuck counts as ass and fuck when both
+        # are configured. Also handles suffixes after the second root: assfuckery.
+        for other in all_roots:
+            if other != root and len(other) >= 3 and tail.startswith(other):
+                remainder = tail[len(other):]
+                if not remainder or _suffix_variant_match(other + remainder, other):
+                    return True
+
+        # Common known compound tails for short roots, e.g. asshole, shithead.
+        if tail in _COMMON_COMPOUND_TAILS:
+            return True
+        for common in _COMMON_COMPOUND_TAILS:
+            if tail.startswith(common) and _suffix_variant_match(tail, common):
+                return True
+
+        # Conservative generic compounds. Reject vowel-starting tails for short
+        # consonant-ending roots, which blocks hello/assassin/assist/assume/caterpillar.
+        if len(root) <= 4 and root[-1] not in "aeiouy" and tail[0] in "aeiouy":
+            return False
+        # Require a substantial tail and at least one vowel so random short tails
+        # do not become matches. This catches many readable compounds like catnip
+        # while rejecting hello -> hell.
+        return len(tail) >= 3 and any(ch in "aeiouy" for ch in tail)
+
+    # 4) Suffix compounds: meaningful prefix + root, e.g. dumbass/badass/hoeass.
     if tok.endswith(root) and len(tok) > len(root):
         head = tok[:-len(root)]
-        return len(head) >= 3
+        # avoid pass/class/grass for ass; require a meaningful compound head
+        return len(head) >= 3 and any(ch in "aeiouy" for ch in head)
 
-    # Middle embedded compounds are useful for roots like fuck in
-    # absofuckinglutely/assfuckery, but too risky for 3-letter roots like ass.
-    if len(root) >= 4 and root in tok:
-        return True
+    # 5) Middle compounds only for safer 4+ letter roots, e.g. absofuckinglutely.
+    if len(root) >= 4:
+        idx = tok.find(root)
+        if idx > 0:
+            before = tok[:idx]
+            after = tok[idx + len(root):]
+            if len(before) >= 3 and (not after or len(after) >= 2):
+                return True
 
-    # Doubled-letter variants: tit -> titties / mustitties.
+    # 6) Doubled-letter variants for very short slang roots: tit -> titties.
     if len(root) <= 4:
         doubled = root + root[-1]
-        # Covers doubled-consonant slang/inflections such as tit -> titties
-        # and embedded compounds like mustitties, without using broad substring
-        # matching for every 3-letter root.
-        if doubled in tok:
+        if doubled in tok and not tok.startswith(root[:-1] if len(root) > 1 else root):
             return True
 
     return False
 
-
-def token_matches_keyword(token: str, keyword: str) -> bool:
+def token_matches_keyword(token: str, keyword: str, all_keywords: Iterable[str] | None = None) -> bool:
     """Return True when a token should count toward a configured keyword.
 
     This is used for every configured keyword, not a hard-coded special case.
+    ``all_keywords`` lets the matcher recognize intentional overlapping
+    compounds such as ``assfuckery`` when both ``ass`` and ``fuck`` are configured.
     """
     tok = compact_latin_word(token)
     if not tok:
         return False
 
+    all_roots: set[str] = set()
+    if all_keywords is not None:
+        for item in all_keywords:
+            all_roots.update(keyword_root_forms(item))
+
     for root in keyword_root_forms(keyword):
-        if _embedded_keyword_match(tok, root):
+        if _embedded_keyword_match(tok, root, all_roots):
             return True
     return False
 
@@ -408,7 +505,7 @@ def count_configured_keywords(tokens: Iterable[str], keywords: Iterable[str]) ->
     counts: Dict[str, int] = {kw: 0 for kw in keyword_list}
     for tok in tokens:
         for kw in keyword_list:
-            if token_matches_keyword(tok, kw):
+            if token_matches_keyword(tok, kw, keyword_list):
                 counts[kw] += 1
     return {kw: c for kw, c in counts.items() if c}
 

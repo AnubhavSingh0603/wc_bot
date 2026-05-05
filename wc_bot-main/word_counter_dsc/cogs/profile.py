@@ -118,31 +118,30 @@ class ProfileCog(commands.Cog):
                 )
             embeds.append(eq)
 
-        # ---- Page 3: Top emoji used by this user ----
-        ee = await self._build_top_emoji_embed(guild_id, user, thumb_url)
-        if ee is not None:
-            embeds.append(ee)
-
-        # ---- Pages 4+: All keyword counts (15 per page) ----
+        # ---- Pages 3+: All keyword counts (15 per page) ----
         if not kw_totals:
             e2 = base_embed(f"Keyword Stats — {user.display_name}", "Your tracked keyword counts in this server.")
             e2.description = "_No keyword counts yet._"
             embeds.append(e2)
-            return embeds
+        else:
+            page_size = 15
+            lines_all = [f"• `{kw}` — **{cnt}**" for kw, cnt in kw_totals]
+            total_pages = (len(lines_all) + page_size - 1) // page_size
+            for i in range(0, len(lines_all), page_size):
+                chunk = lines_all[i : i + page_size]
+                page_no = (i // page_size) + 1
+                e = base_embed(f"Keyword Stats — {user.display_name}", "Your tracked keyword counts in this server.")
+                e.add_field(
+                    name=f"Counts ({len(lines_all)}) — Page {page_no}/{total_pages}",
+                    value="\n".join(chunk),
+                    inline=False,
+                )
+                embeds.append(e)
 
-        page_size = 15
-        lines_all = [f"• `{kw}` — **{cnt}**" for kw, cnt in kw_totals]
-        total_pages = (len(lines_all) + page_size - 1) // page_size
-        for i in range(0, len(lines_all), page_size):
-            chunk = lines_all[i : i + page_size]
-            page_no = (i // page_size) + 1
-            e = base_embed(f"Keyword Stats — {user.display_name}", "Your tracked keyword counts in this server.")
-            e.add_field(
-                name=f"Counts ({len(lines_all)}) — Page {page_no}/{total_pages}",
-                value="\n".join(chunk),
-                inline=False,
-            )
-            embeds.append(e)
+        # ---- Final page: Top emoji used by this user ----
+        ee = await self._build_top_emoji_embed(guild_id, user, thumb_url)
+        if ee is not None:
+            embeds.append(ee)
 
         return embeds
 
